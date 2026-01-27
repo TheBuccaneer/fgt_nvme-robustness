@@ -1,0 +1,245 @@
+Hier ist die **nahtlose “Weiterarbeiten-Zusammenfassung”** für den nächsten Thread: **Status**, **Ordnerstruktur**, **alle relevanten Dateien/Artefakte**, **was wir genau gemacht haben**, **was rausgekommen ist**, **und was als optionale Verstärker noch fehlt** (inkl. was du dafür brauchst).
+
+---
+
+# Thread-Zusammenfassung — `fgt_nvme-robustness` (Stand: Paper-ready + optionale Add-ons offen)
+
+## 0) Ziel / Storyline (Paper)
+
+Wir haben eine vollständige, reviewer-sichere Story aufgebaut:
+
+1. **Plot 1 (RD vs bound_k)** zeigt: der Reordering-Knob wirkt (Kontrollvariable).
+2. **Plot 2 (p95 Tail-Latency)** zeigt: Scheduling-Policy beeinflusst Tail massiv (Impact).
+3. **Risk-Cliff (Tabelle/Map)** zeigt: policyabhängige “Klippe”/Tipping-Region über bound_k (System-Insight).
+4. **Poison-Schedules (Top-K + Traces)** zeigen: Worst-Cases sind konkret & reproduzierbar.
+5. **RDSS + Uniform Baseline** ehrlich evaluiert: im kleinen Pool konvergiert RDSS zu Uniform; RDSS ist Rare-Event Sampler.
+
+Optional offen: Threat-model Box (Text), Second-seed generality run, RDSS Rare-event Figure (nur wenn wir Setup rarer machen).
+
+---
+
+## 1) Repo & relevante Root-Struktur
+
+### Neues Repo (aktuelles Arbeitsrepo)
+
+**Root:** `~/projects/fgt_nvme-robustness`
+
+Aktuell im Root gesehen:
+
+* `Cargo.toml`, `LICENSE`, `.gitignore`, `.git/`
+* `src/`
+* `configs/`  ✅ (wichtig: dort liegen `main.yaml`, `test.yaml`)
+* `seeds/` ✅
+* `scripts/` ✅
+* `doc/command.md` ✅ (Command-Doku, Copy-Paste)
+* `out/` ✅ (Outputs: logs/csv/fig/tab/poison/rdss/…)
+
+### Alte Referenz-Struktur (nur Kontext)
+
+Altes Projekt: `~/projects/os_ueb/v2/Projekt` (hatte viele `out_*` Ordner etc.). Das neue Repo ist “cleaner”; wir bauen die paper artifacts jetzt gezielt aus `out/`.
+
+---
+
+## 2) Inputs (Konfig & Seeds)
+
+### `configs/`
+
+* `configs/main.yaml`  (Main run-matrix Config)
+* `configs/test.yaml`  (Smoke / kleiner)
+
+### `seeds/`
+
+* `seed_001.json`
+* `seed_001_long32.json`
+* `seed_002.json`
+* Smoke seeds: `stale_read_test.json`, `fresh_read_test.json`, `vis_len4_test.json`
+
+---
+
+## 3) Scripts (Pipeline)
+
+Im Repo unter `scripts/`:
+
+* `01_parse_check.py`
+  Logs → Run-level CSV (`results_*.csv`)
+* `02_aggregate.py`
+  Run-level CSV → Summary CSV (`summary_*.csv`)
+* `03_robustness.py`
+  Plot 1: RD vs bound_k
+* `04_plot_latency_fixedv2.py`
+  Plot 2: p95 tail-latency slice (u.a. k=inf, fault=NONE)
+* `rdss_ce.py`
+  RDSS/CE sampler über schedule_seeds + produziert `rdss_status.csv`, `top_poison.csv`, `elite_seeds.txt`
+
+**Wichtige bekannte Kante:**
+
+* `rdss_ce.py --submit-window` erwartet **int**, daher **kein `inf`** möglich (Fehler “invalid int value: 'inf'”). RDSS wurde deshalb für **SW4** gefahren.
+
+---
+
+## 4) Outputs (alles Wichtige liegt unter `out/`)
+
+### Logs (run-matrix output dirs)
+
+* `out/logs_sw2/`  (submit_window=2)
+* `out/logs_sw4/`  (submit_window=4)
+* `out/logs_swinf/` (submit_window=inf)
+
+### Run-level CSVs (`01_parse_check.py`)
+
+* `out/csv/results_sw2.csv`
+* `out/csv/results_sw4.csv`
+* `out/csv/results_swinf.csv`
+
+Beobachtet: `results_*.csv` enthalten u.a.:
+
+* `RD, FE, RCS, completion_rate`
+* pending: `pending_peak, pending_area, pending_mean`
+* latency: `mean/p95/max_latency_step`
+* tail: `tail_budget_step, tail_slack_step, tail_exceed`
+* `log_file` Pfad für Repro
+
+### Summary CSVs (`02_aggregate.py`)
+
+* `out/csv/summary_sw2.csv`
+* `out/csv/summary_sw4.csv`
+* `out/csv/summary_swinf.csv`
+
+### Figuren (PDFs)
+
+Plot 1 (RD vs bound_k):
+
+* `out/fig/plot1_rd_vs_bound_sw2.pdf`
+* `out/fig/plot1_rd_vs_bound_sw4.pdf`
+* `out/fig/plot1_rd_vs_bound_swinf.pdf`
+
+Plot 2 (Tail-latency p95 slice):
+
+* `out/fig/plot2_latency_sw2_p95_k=inf_fault=NONE.pdf`
+* `out/fig/plot2_latency_sw4_p95_k=inf_fault=NONE.pdf`
+* `out/fig/plot2_latency_swinf_p95_k=inf_fault=NONE.pdf`
+
+**Paper-Entscheid:** die **SW∞** Varianten sind die Hauptplots.
+
+### Risk-Cliff (Tabelle/Map)
+
+* `out/tab/risk_cliff_swinf.csv`
+* `out/tab/risk_cliff_swinf.md`
+
+(Die `.md` wurde am Ende erzeugt; davor gab’s einmal einen SyntaxError in einem One-liner → ist jetzt “behoben” durch finalen MD-Output.)
+
+**Auszug aus NONE-Slice (aus deinem Output):**
+
+* FIFO: ~13.70 konstant
+* RANDOM: steigt ~12.89 → ~18.25
+* BATCHED: ~5.87 → ~6.52 (niedrig/konstant)
+* ADVERSARIAL: ~13–14 bei k≤2, dann Sprung ~20.95 bei k=3, ~28.46 ab k≥5
+  → genau die “Risk Cliff”-Story.
+
+### Poison schedules (Top p95 + Traces)
+
+* `out/poison/poison_top_p95_swinf.csv`
+* `out/poison/traces/` (kondensierte Traces)
+
+Auswertung Top-50:
+
+* ADVERSARIAL 76%, RANDOM 22%, FIFO 2%
+* p95: max 64, median 43, mean 45.34
+* max p95: ADVERSARIAL 64, RANDOM 52, FIFO 33
+
+Beispiel-Traces, die wir angeschaut haben:
+
+* `policy=ADVERSARIAL_seed=10_p95=64.00.log`
+* und ein RANDOM-Beispiel aus Original-Log (seed=11, p95=52) (nicht zwingend im traces-Ordner, aber als “Second trace” im Paper möglich)
+
+### RDSS + Uniform Baseline (SW4)
+
+RDSS Output:
+
+* `out/rdss_sw4/rdss_status.csv`
+* `out/rdss_sw4/top_poison.csv`
+* `out/rdss_sw4/elite_seeds.txt`
+  Status (aus deinem Print):
+* seen=40, best_slack=31, best_seed=53
+
+Uniform Output:
+
+* `out/uniform_sw4/rdss_status.csv`
+* `out/uniform_sw4/top_poison.csv`
+* `out/uniform_sw4/elite_seeds.txt`
+  Status:
+* seen=90, best_slack=31, best_seed=53
+
+Threshold view (Rare-event framing) aus deinem Print:
+
+* RDSS: N=40 best=31 hits>=25:1 hits>=30:1 hits>=31:1
+* Uniform: N=50 best=31 hits>=25:2 hits>=30:1 hits>=31:1
+  → im kleinen Pool kein Vorteil; ehrlich so im Paper beschrieben.
+
+---
+
+## 5) Dokumentation im Repo
+
+* `doc/command.md` existiert und enthält den Copy/Paste Workflow.
+  Wichtig: wir wollten dort die RDSS/Uniform Kommandos + Auswertung + Kopieren der Artefakte ergänzen (falls noch nicht drin, ist das der nächste leichte Doku-Schritt).
+
+Zusätzlich gewünscht: ein eigenes Doku-Dokument (nicht command.md) mit Ergebnissen/Claims → wurde als großer Markdown-Text vorbereitet (Paper Draft Notes). Das sollte im Repo als z.B. `doc/paper_notes.md` gespeichert werden, wenn du es persistent willst.
+
+---
+
+## 6) Bekannte Stolpersteine / Lessons learned
+
+* Rust-Warnung: `WRITE_VISIBLE` non-camel-case → **harmlos**, kann man per allow-lint unterdrücken oder Variant umbenennen; ist rein Stil.
+* RDSS: `--submit-window inf` geht nicht (int-only); RDSS daher auf SW4.
+* Wenn du mehrere Commands auf einmal gibst, passieren schnell Quote/Syntax-Fehler → Workflow im nächsten Thread weiter strikt “mini-step”.
+
+---
+
+# Was im nächsten Thread optional noch zu tun ist
+
+## Optional A (sehr klein): Threat-Model Box
+
+Nur Text (10–15 min), keine Runs. (Entwurf existiert bereits.)
+
+## Optional B (mittlere Größe): “Second seed generality check” für SW∞
+
+Ziel: ein Satz im Paper:
+
+> “We repeated the SW∞ experiments with a second workload seed and observed the same qualitative risk-cliff behavior.”
+
+Dazu braucht man:
+
+* run-matrix für SW∞ mit zweitem seed (oder alternate seed config)
+* parse/aggregate + risk-cliff table neu oder nur ein paar Kennzahlen vergleichen
+
+## Optional C (methodisch): RDSS “Rare-event” Separation sichtbar machen
+
+Nur sinnvoll, wenn wir **Rarity erhöhen**, z.B.:
+
+* Pool erhöhen (0–999) **oder**
+* Budget sehr klein (20/30) **oder**
+* Target verschärfen (compound threshold)
+  Dann Figure:
+* `best_slack vs samples_seen` RDSS vs Uniform (kleine Kurve)
+
+---
+
+# “Bring to next chat” – damit wir nahtlos weitermachen können
+
+Wenn du im nächsten Thread sofort weiter willst (ohne Kontextverlust), reicht:
+
+1. `tree -d -L 3` von `fgt_nvme-robustness` (oder zumindest `ls -la` von `scripts/ out/ doc/ artifacts/`)
+2. `head -n 3` von:
+
+   * `out/csv/results_swinf.csv`
+   * `out/tab/risk_cliff_swinf.csv`
+   * `out/poison/poison_top_p95_swinf.csv`
+3. `ls -lh out/rdss_sw4 out/uniform_sw4`
+
+Optional, wenn wir Second-seed machen:
+
+* welche Seed-Datei wir als “second workload” nehmen (z.B. `seed_002.json`) ist im Repo vorhanden.
+
+---
+
+Wenn du willst, kann ich als **allerersten Mini-Schritt** im nächsten Thread direkt mit **Optional B** starten (Second seed SW∞), oder zuerst **Optional A** (Threat-model + final outline + figure captions) sauber fertig schreiben.

@@ -1,0 +1,61 @@
+**Ja, aber selektiv.**
+
+Wenn B Dienstag steht, gibt es zwei sinnvolle Erweiterungen:
+
+| Option | Tiefe? | Aufwand |
+|--------|--------|---------|
+| **WRITE_VISIBLE (Weak Memory)** | ✓✓✓ Echte GPU-Relevanz | ~0.5 Tage |
+| Schedule-Diversity | ✗ Nur mehr Zahlen | ~0.25 Tage |
+| STG/Coverage | ✗ Zu viel für 6 Seiten | ~1 Tag |
+
+**Meine Empfehlung:** Wenn Zeit übrig ist, **WRITE_VISIBLE**.
+
+Das modelliert: Host schreibt Buffer → Device sieht es *verzögert* → Completion vor Visibility = Bug.
+
+Das ist:
+- Ein echtes GPU/PCIe-Problem (Posted Writes, Cache Coherency)
+- Nicht nur "mehr Metriken", sondern ein **neuer Fehlertyp**
+- Paper-Aussage: "Wir finden auch Memory-Visibility-Bugs, nicht nur Ordering"
+
+Alles andere ist Breite, nicht Tiefe.
+
+
+
+Ja – **wenn der Core-Run steht**, kannst du am Ende noch “Tiefe” draufsetzen, die **wirklich nach Heterogenität/Systems-Testing aussieht** (und nicht nach Spielerei). Die besten Add-ons sind solche, die **(a)** eure 2D-Idee stärker ausreizen und **(b)** mit wenig zusätzlichem Code **eine klare Extra-Figur/Extra-Tabelle** liefern.
+
+## Drei Add-ons mit echter “Novelty-Dichte”
+
+### A) Feedback-driven *Schedule Mutation* (Quick-Win, sehr “paperable”)
+
+Statt nur “random schedules” machst du **einen kleinen, coverage-ähnlichen Loop über Schedules**:
+
+* Speichere “interessante” Schedules (z.B. neue Trace-States, neue RD-/FE-Extrema, neue Mismatch-Signatur).
+* Mutationen: **swap** zweier Completion-Events, **delay** einzelner Completions, **drop/timeout**, **reset** an neuen Stellen.
+  Das ist konzeptionell nahe an Schedule-Fuzzing in verteilten Systemen, wo Schedules gezielt durch Event-Reordering/Crash-Mutationen variiert werden. ([arXiv][1])
+  **Output fürs Paper:** 1 Plot “Random vs Feedback-guided: wie schnell finden wir neue Trace-States/Mismatches”.
+
+### B) *Schedule Bounding* als systematische Achse (starkes “Concurrency”-Argument)
+
+Du machst aus eurem BoundedReorder(k) mehr als nur eine Kurve:
+**Vergleich:** “unbounded random” vs “bounded (k)” → **Effizienz** (wie viele Runs bis zu einem RD-Schwellwert / bis zu Mismatch #1).
+Das knüpft direkt an Schedule-Bounding/CHESS-artige Ideen an (systematische Exploration statt Chaos). ([doc.ic.ac.uk][2])
+**Output:** 1 Tabelle + 1 Mini-Plot “k-Bounding beats random”.
+
+### C) Realistischere Fault-Modelle (nicht nur RESET/TIMEOUT)
+
+Wenn du zeigen willst “das ist näher an echter Host↔Device-Welt”:
+
+* Ergänze 1–2 Fault-Klassen, die **wie echte Device-Faults** aussehen (z.B. DMA-Faults, fehlerhafte DMA-Writes/Corruption). DMA-Fault-Testing für Treiber via Fuzzing ist ein etabliertes Motiv. ([dl.acm.org][3])
+* Optional: Verweise darauf, dass es in Datacenter-NVMe-Specs sogar **Event Injection** als Konzept gibt (als Validitätsanker für “Fault injection ist real-world relevant”). ([Open Compute Project][4])
+  **Output:** 1 Matrix “Fault type × (RD/FE/SSI/RCS shift)”.
+
+## Was ich dir empfehlen würde
+
+**A)** ist meistens der beste “letzter Schliff”: wenig Risiko, klare Zusatzfigur, und es macht eure 2D-Story **spürbar** (“wir suchen aktiv im Schedule-Raum”).
+
+**Minischritt:** Wenn du willst, dass wir das konkret machen: antworte nur mit **A**, **B** oder **C** – ich gebe dir dann exakt **den kleinsten Implementationsplan** (1–2 Funktionen + was du loggen musst), ohne dass wir den Core anfassen.
+
+[1]: https://arxiv.org/html/2410.02307v2?utm_source=chatgpt.com "Model-guided Fuzzing of Distributed Systems"
+[2]: https://www.doc.ic.ac.uk/~afd/papers/2014/PPoPP.pdf?utm_source=chatgpt.com "Concurrency Testing Using Schedule Bounding"
+[3]: https://dl.acm.org/doi/pdf/10.1145/3477314.3507082?utm_source=chatgpt.com "DMAFV: testing device drivers against DMA faults"
+[4]: https://www.opencompute.org/documents/datacenter-nvme-ssd-specification-v2-7-final-pdf-1?utm_source=chatgpt.com "Datacenter NVMe® SSD Specification"

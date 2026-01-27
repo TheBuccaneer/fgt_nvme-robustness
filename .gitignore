@@ -1,0 +1,36 @@
+# --- Rust ---
+/target/
+/Cargo.lock
+
+# --- C / Make ---
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# common C build dirs
+/build/
+/c_dut/build/
+/c_dut/**/build/
+
+# --- Python / venv ---
+.venv/
+__pycache__/
+*.pyc
+
+# --- Outputs / artifacts (project-specific) ---
+/out/
+/out_*/
+/c_dut/out/
+/c_dut/out_*/
+/artifacts/*.tgz
+/artifacts/paper_artifacts_*.tgz
+/tmp/
+
+# --- Editor / OS ---
+.DS_Store
+*.swp
+.idea/
+.vscode/

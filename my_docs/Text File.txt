@@ -1,0 +1,96 @@
+Ich analysiere die Rust-Dateien und erstelle die C-Implementierung. Zuerst schaue ich mir die hochgeladenen Dateien an, um alle Details zu verstehen.Perfekt. Ich habe alle Rust-Dateien analysiert. Jetzt erstelle ich die vollständige C-Implementierung.
+
+## Annahmen
+
+1. **PRNG**: Ich verwende `splitmix64` - ein einfacher, deterministischer PRNG
+2. **JSON**: Ich verwende `cJSON` (single-header library, wird in `vendor/` abgelegt)
+3. **YAML**: Vereinfachter Line-Parser (da `main.yaml` sehr simpel ist)
+4. **Storage**: 1024 u32-Wörter (wie in Rust)
+5. **BATCHED**: batch_size = 4 (wie in Rust)
+6. **Fault-Step**: `n_cmds / 2` (wie in Rust)
+7. **Hash für READ**: `hash = hash * 31 + value` (wrapping, wie in Rust)
+
+Ich erstelle nun das komplette Projekt:Ich kann cJSON nicht herunterladen (Netzwerk-Beschränkungen). Ich implementiere stattdessen einen minimalen JSON-Parser.## ✅ NVMe-lite DUT (C Implementation) fertig!
+
+Das vollständige C-Projekt ist als `c_dut.tar.gz` bereitgestellt.
+
+### Projektstruktur
+
+```
+c_dut/
+├── Makefile              # Build system
+├── README.md             # Dokumentation
+├── nvme-lite-dut         # Kompiliertes Binary
+├── src/
+│   ├── main.c            # CLI (run-one, run-matrix)
+│   ├── config.c/h        # YAML Config Parsing
+│   ├── seed.c/h          # JSON Seed Parsing
+│   ├── model.c/h         # NVMe-lite Device State
+│   ├── scheduler.c/h     # Policies + bound_k
+│   ├── logging.c/h       # Log Writer
+│   ├── runner.c/h        # Run Execution Loop
+│   └── rng.c/h           # Deterministischer PRNG (splitmix64)
+├── vendor/
+│   └── mini_json.c/h     # Minimaler JSON Parser
+├── seeds/                # Beispiel Seeds
+├── configs/              # YAML Configs
+└── out/                  # Generierte Logs
+```
+
+### Build & Run
+
+```bash
+# Entpacken
+tar -xzf c_dut.tar.gz
+cd c_dut
+
+# Bauen
+make
+
+# Tests (3 Tests: Determinismus, bound_k=0, fault_mode=NONE)
+make test
+
+# Einzelner Run
+./nvme-lite-dut run-one \
+  --seed-file seeds/seed_001.json \
+  --schedule-seed 42 \
+  --policy FIFO \
+  --bound-k 0 \
+  --fault-mode NONE \
+  --out-log out/test.log
+
+# Matrix Run
+./nvme-lite-dut run-matrix \
+  --config configs/main.yaml \
+  --out-dir out/logs \
+  --schedule-seeds 0-99
+```
+
+### Implementierte Features
+
+| Feature | Status |
+|---------|--------|
+| **CLI** | `run-one`, `run-matrix` ✅ |
+| **Policies** | FIFO, RANDOM, ADVERSARIAL, BATCHED ✅ |
+| **bound_k** | 0, 1, 2, ..., inf ✅ |
+| **Fault Modes** | NONE, TIMEOUT, RESET ✅ |
+| **submit_window** | N oder inf ✅ |
+| **Log Format** | Identisch zur Rust-Version ✅ |
+| **Determinismus** | splitmix64 PRNG ✅ |
+
+### Tests bestanden
+
+```
+=== Test 1: Determinism ===
+PASS: Logs are identical
+
+=== Test 2: bound_k=0 forces FIFO order ===
+PASS: FIFO order enforced with bound_k=0
+
+=== Test 3: fault_mode=NONE -> pending_left=0 ===
+PASS: pending_left=0 for fault_mode=NONE
+```
+
+### Hinweis zum Differential Testing
+
+Da C und Rust unterschiedliche PRNGs verwenden (splitmix64 vs ChaCha8), werden die Logs **nicht byte-identisch** sein. Für Differential Testing musst du die **Semantik** vergleichen (z.B. dass bei gleichen Parametern beide Implementierungen korrekte State-Transitions durchführen), nicht die exakte Log-Sequenz.

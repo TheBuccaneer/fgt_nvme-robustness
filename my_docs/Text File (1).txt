@@ -1,0 +1,271 @@
+# NVMe-lite Robustness — Rebuild & Results Notes (for paper use)
+
+Date: 2026-01-27
+Repo: `fgt_nvme-robustness`
+Goal: quantify **robustness vs reordering** and **tail latency under stress schedules**, and show how results change with **submit-window** (SW2 / SW4 / SW∞).
+
+---
+
+## 1) What we did (pipeline)
+
+We executed the full, reproducible pipeline:
+
+1) **Build** the release binary
+- `cargo build --release`
+- output: `target/release/nvme-lite-oracle`
+
+2) **Generate logs** by running the experiment matrix three times with different submit-window:
+- SW2  → `--submit-window 2`   → logs in `out/logs_sw2/`
+- SW4  → `--submit-window 4`   → logs in `out/logs_sw4/`
+- SW∞  → `--submit-window inf` → logs in `out/logs_swinf/`
+
+3) **Parse logs → run-level CSV**
+- `python3 scripts/01_parse_check.py --logs ... --out out/csv/results_*.csv`
+
+4) **Aggregate → summary CSV**
+- `python3 scripts/02_aggregate.py --in out/csv/results_*.csv --out out/csv/summary_*.csv`
+
+5) **Plot 1 (robustness curve): RD vs bound_k** from `summary_*.csv`
+- `python3 scripts/03_robustness.py --in out/csv/summary_*.csv --out out/fig/plot1_rd_vs_bound_*.pdf`
+
+6) **Plot 2 (tail latency): p95 latency by policy**, filtered to `bound_k=inf` and `fault_mode=NONE`, from `results_*.csv`
+- `python3 scripts/04_plot_latency_fixedv2.py --in out/csv/results_*.csv --out out/fig/plot2_latency_*_p95_k=inf_fault=NONE.pdf --metric p95_latency_step --bound-k inf --fault-mode NONE`
+
+The exact commands are tracked separately in `doc/command.md`.
+
+---
+
+## 2) Experiment configuration (matrix)
+
+Configuration used: `configs/main.yaml`.
+
+Matrix dimensions:
+- seeds: `seeds/seed_001_long32.json` (1 seed)
+- policies: `FIFO`, `RANDOM`, `ADVERSARIAL`, `BATCHED`
+- bounds (`bound_k`): `0, 1, 2, 3, 5, 10, inf`
+- faults (`fault_mode`): `NONE, TIMEOUT, RESET`
+- schedule_seeds: `0-99` (100 schedules per cell)
+- scheduler_version: `v1.0`
+
+Total runs per submit-window:
+- `4 policies × 7 bounds × 3 faults × 100 schedules = 8400 runs`
+
+So overall (3 submit-window settings):
+- `3 × 8400 = 25200 runs`
+
+---
+
+## 3) Produced artifacts (current output snapshot)
+
+### Run-level CSVs (parsed from logs)
+- `out/csv/results_sw2.csv`   (~2.6MB)
+- `out/csv/results_sw4.csv`   (~2.6MB)
+- `out/csv/results_swinf.csv` (~2.6MB)
+
+Each row = one run instance, incl.:
+- identifiers: `seed_id`, `policy`, `bound_k`, `fault_mode`, `schedule_seed`
+- correctness/rate fields: `mismatch`, `timeout`, `crash`, `completion_rate`
+- robustness metrics: `RD`, `FE`, `RCS`
+- backlog/stress metrics: `pending_peak`, `pending_area`, etc.
+- latency (step + display): `mean_latency_*`, `p95_latency_*`, `max_latency_*`
+- trace pointer: `log_file`
+
+### Summary CSVs (aggregated)
+- `out/csv/summary_sw2.csv`   (84 rows)
+- `out/csv/summary_sw4.csv`   (84 rows)
+- `out/csv/summary_swinf.csv` (84 rows)
+
+Each row aggregates 100 schedules for one `(seed_id, policy, bound_k, fault_mode)` cell:
+- rates: mismatch/timeout/crash
+- RD/FE means & std
+- pending stats (peak/area)
+- SSI-style coefficients of variation (`SSI_area`, `SSI`)
+- RCS mean & std
+
+### Plots
+Plot 1 (robustness curve):
+- `out/fig/plot1_rd_vs_bound_sw2.pdf`
+- `out/fig/plot1_rd_vs_bound_sw4.pdf`
+- `out/fig/plot1_rd_vs_bound_swinf.pdf`
+
+Plot 2 (tail latency slice: `k=inf`, `fault_mode=NONE`):
+- `out/fig/plot2_latency_sw2_p95_k=inf_fault=NONE.pdf`
+- `out/fig/plot2_latency_sw4_p95_k=inf_fault=NONE.pdf`
+- `out/fig/plot2_latency_swinf_p95_k=inf_fault=NONE.pdf`
+
+---
+
+## 4) Sanity results (correctness / failures)
+
+From the summary files:
+- `mismatch_rate` is 0.0 across all cells (no semantic mismatches)
+- `crash_rate` is 0.0 across all cells
+- `timeout_rate` is 0.0 for `fault_mode in {NONE, RESET}`
+- `timeout_rate` is 1.0 for `fault_mode=TIMEOUT` (expected by design)
+
+Implication:
+- “TIMEOUT” is a deliberate fault mode that forces timeouts (useful for exercising recovery paths), but it is not directly comparable to normal completion behavior.
+
+---
+
+## 5) Main quantitative results
+
+### 5.1 Overall RD increases with submit-window (more concurrency → more risk)
+
+Mean of `RD_mean` across all 84 summary cells:
+- SW2   : **0.01947**
+- SW4   : **0.04401**
+- SW∞   : **0.05690**
+
+This supports the core hypothesis:
+- larger submit windows (more in-flight operations) amplify the impact of schedule variability and reordering.
+
+### 5.2 RD at bound_k=inf, fault_mode=NONE (by policy)
+
+RD at the most permissive reorder bound shows strong policy separation:
+
+| submit-window | FIFO | RANDOM | ADVERSARIAL | BATCHED |
+|---|---:|---:|---:|---:|
+| SW2   | 0.000000 | 0.015181 | 0.031270 | 0.010363 |
+| SW4   | 0.000000 | 0.043992 | 0.089536 | 0.023609 |
+| SW∞   | 0.000000 | 0.098206 | 0.218186 | 0.029194 |
+
+Key observations:
+- **FIFO RD stays at ~0** even under `k=inf` in this setup.
+- **ADVERSARIAL dominates** (largest RD), and the gap widens with larger submit windows.
+- **BATCHED reduces RD** relative to RANDOM/ADVERSARIAL, especially at larger windows.
+
+### 5.3 Plot 2: Tail latency (p95_latency_step) at bound_k=inf, fault_mode=NONE (by policy)
+
+Extracted from the Plot 2 PDFs (p95 latency in step units):
+
+| submit-window | FIFO | RANDOM | ADVERSARIAL | BATCHED |
+|---|---:|---:|---:|---:|
+| SW2   | 3.28 | 4.40 | 5.36 | 3.03 |
+| SW4   | 6.79 | 9.16 | 11.92 | 5.42 |
+| SW∞   | 13.70 | 18.25 | 28.46 | 6.52 |
+
+Key observations:
+- Tail latency scales strongly with submit-window for most policies.
+- **ADVERSARIAL grows the fastest** (e.g., SW∞ ADVERSARIAL 28.46 vs FIFO 13.70).
+- **BATCHED stays comparatively low** at SW∞ (6.52), indicating batching dampens tail effects under stress.
+
+### 5.4 Stress/backlog indicators (pending peak/area) at bound_k=inf, fault_mode=NONE
+
+Pending backlog correlates with tail latency:
+
+For `bound_k=inf`, `fault_mode=NONE`:
+
+- SW2: pending_peak_mean ≈ 2 for all policies (low stress baseline)
+- SW4: pending_peak_mean ≈ 4 for most; BATCHED slightly lower
+- SW∞: large separation:
+  - FIFO / RANDOM / ADVERSARIAL pending_peak_mean ≈ 8–9
+  - BATCHED pending_peak_mean ≈ ~5
+
+This matches Plot 2:
+- higher backlog (more pending work) drives higher tail latency,
+- batching reduces backlog and thus reduces p95.
+
+---
+
+## 6) Interpretation (paper-ready statements)
+
+- **Robustness degrades with relaxed ordering**: RD increases as `bound_k` grows (Plot 1), i.e., the system becomes more schedule-sensitive when more reordering is permitted.
+- **Concurrency amplifies risk**: increasing `submit-window` shifts RD upward (SW2 < SW4 < SW∞), showing that higher in-flight pressure increases sensitivity to schedule choices.
+- **Worst-case scheduling dominates**: ADVERSARIAL consistently yields the highest RD and tail latency, and its relative penalty grows with higher concurrency.
+- **Batching mitigates tail effects**: BATCHED shows substantially lower tail latency and backlog in the high-concurrency regime, suggesting batching reduces pathological schedule amplification.
+
+---
+
+## 7) Threats to validity / limitations
+
+- Single seed (`seed_001_long32`) in `configs/main.yaml`: results should be replicated with additional seeds to generalize.
+- `fault_mode=TIMEOUT` is intentionally forced to time out (timeout_rate=1.0), so comparisons should focus on `fault_mode=NONE` (and optionally RESET).
+- Tail latency is reported in “step units” (`p95_latency_step`): this is stable for comparative evaluation but not a wall-clock latency measurement.
+
+---
+
+## 8) What to include in the paper appendix
+
+Recommended minimal artifact bundle:
+- `configs/main.yaml`
+- `out/csv/summary_sw2.csv`, `summary_sw4.csv`, `summary_swinf.csv`
+- `out/fig/plot1_rd_vs_bound_*.pdf`
+- `out/fig/plot2_latency_*_p95_k=inf_fault=NONE.pdf`
+- `doc/command.md` (commands only)
+
+This is sufficient to reproduce the figures and validate the quantitative tables above.
+
+
+# Paper Notes — Figure-driven story (Plot1 → Plot2 → Next)
+
+## Setup (1 paragraph before figures)
+We study robustness of a host↔device command protocol (NVMe-lite) against schedule-induced reordering.
+We vary two knobs:
+1) **Reordering freedom** via `bound_k` (0 … inf)
+2) **Concurrency pressure** via `submit_window` (SW2 / SW4 / SW∞)
+
+Fault modes (`NONE`, `RESET`, `TIMEOUT`) and scheduling policies (`FIFO`, `RANDOM`, `ADVERSARIAL`, `BATCHED`)
+define the schedule behavior under identical workloads.
+
+**Paper setting:** We use **SW∞** as the main stress setting (max concurrency → strongest effects).
+SW2/SW4 are reported as ablation/appendix.
+
+---
+
+## Figure 1 (Plot 1): RD vs bound_k — “Does the reordering knob work?”
+**Claim:** RD generally increases with `bound_k`, but can **saturate** once `bound_k` exceeds the effective concurrency.
+Intuition: with small `submit_window`, once enough operations are already “in flight”, increasing `bound_k` adds little additional reorder freedom.
+
+**Observed saturation (fault_mode=NONE):**
+- SW2 reaches its maximum RD already at `k≈1` and stays flat afterwards.
+- SW4 rises until about `k≈3` and then plateaus.
+- SW∞ continues rising up to `k=inf`, i.e., the knob remains effective under high concurrency.
+
+**Transition to Figure 2:**
+RD tells us **how much reordering happens**. Next we ask: **what does it cost?** (tail latency).
+
+---
+
+## Figure 2 (Plot 2): p95 tail latency by policy (k=inf, fault=NONE) — “What does it cost?”
+Plot 2 evaluates tail latency (p95) under a fixed stress slice: `bound_k=inf`, `fault_mode=NONE`.
+
+**Claim:** scheduling policies induce large differences in tail latency under identical workloads.
+In particular, ADVERSARIAL schedules lead to markedly worse tail behavior than FIFO, with the gap widening under higher concurrency.
+BATCHED mitigates tail effects in the high-concurrency regime.
+
+**Important:** Plot 2 is a slice/aggregation over existing runs; it is **not** RDSS.
+RDSS is a separate *search* method that adaptively discovers high-risk schedules.
+
+---
+
+## Validity note: TIMEOUT is “by design”
+Cells with `fault_mode=TIMEOUT` are not performance measurements.
+They intentionally exercise the timeout fault path (timeout_rate ≈ 1.0).
+Therefore, the paper’s primary plots focus on `fault_mode=NONE` (RESET optional).
+
+---
+
+# What is still missing for the “full story” beyond Plot1/Plot2?
+
+## A) Risk-Cliff / Landmap (no new runs needed)
+From `results_swinf.csv`, aggregate over `(policy × fault_mode × bound_k)`:
+- mean RD
+- mean p95 latency
+- exceed-rate (e.g., via `tail_exceed` or `tail_slack_step > 0`)
+
+This yields the “phase transition / cliff” view: where tail SLO violations start appearing frequently.
+
+## B) Poison schedules + trace export (no new runs needed)
+From `results_swinf.csv` (slice: `fault_mode=NONE`, `bound_k=inf`):
+- export Top-K runs by p95 latency
+- export condensed traces for 1–10 examples (RUN_HEADER / SUBMIT / COMPLETE / FENCE / RESET / RUN_END)
+
+This makes the cliff concrete: worst cases are reproducible (schedule_seed + config + log).
+
+## C) RDSS + RDSS-vs-Uniform (needs additional runs)
+If we want “method novelty”:
+- run `rdss_ce.py` on a large pool of schedule_seeds
+- report “best found risk vs budget” compared to uniform sampling at the same budget
+Outputs: `rdss_status.csv`, `top_poison.csv`, `elite_seeds.txt`.
+

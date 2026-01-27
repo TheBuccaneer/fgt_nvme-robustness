@@ -1,0 +1,7 @@
+{
+  "seed_id": "stale_read_test",
+  "commands": [
+    {"type": "WRITE", "lba": 0, "len": 1, "pattern": 42},
+    {"type": "READ", "lba": 0, "len": 1}
+  ]
+}
