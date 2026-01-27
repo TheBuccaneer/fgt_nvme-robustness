@@ -178,3 +178,81 @@ Typical values:
 cargo build --release
 ./target/release/nvme-lite-oracle run-matrix --config <CONFIG> --out-dir <OUT_DIR> --submit-window <2|4|inf>
 
+
+## Option B) Second-seed generality check (SW∞)
+
+### Goal
+Repeat the SW∞ experiment with a second workload seed (seed_002) while keeping policies, bounds, faults, and schedule-seed pool unchanged. Then compare the qualitative p95-vs-k structure (fault_mode=NONE).
+
+### 1) Create a second config with `seed_002.json`
+python3 -c 'import yaml; p="configs/main.yaml"; o="configs/main_seed2.yaml"; cfg=yaml.safe_load(open(p,"r",encoding="utf-8")); cfg["seeds"]=["seeds/seed_002.json"]; yaml.safe_dump(cfg, open(o,"w",encoding="utf-8"), sort_keys=False); print("[ok] wrote", o)'
+
+### 2) Run SW∞ matrix (seed_002) → logs
+rm -rf out/logs_swinf_seed2; mkdir -p out/logs_swinf_seed2; ./target/release/nvme-lite-oracle run-matrix --config configs/main_seed2.yaml --out-dir out/logs_swinf_seed2 --submit-window inf
+
+### 3) Parse logs → run-level CSV
+mkdir -p out/csv; python3 scripts/01_parse_check.py --logs out/logs_swinf_seed2 --out out/csv/results_swinf_seed2.csv
+
+### 4) Compare Seed1 vs Seed2 (fault=NONE): mean p95 latency by policy × bound_k
+python3 -c 'import csv; bounds=["0","1","2","3","5","10","inf"]; policies=["FIFO","RANDOM","BATCHED","ADVERSARIAL"]; 
+def mean_p95(path):
+ d={}; n={}
+ for r in csv.DictReader(open(path,newline="",encoding="utf-8")):
+  if r.get("fault_mode")!="NONE": 
+   continue
+  pol=r.get("policy"); bk=r.get("bound_k"); x=r.get("p95_latency_step","")
+  if pol is None or bk is None or x=="": 
+   continue
+  try: v=float(x)
+  except: 
+   continue
+  k=(pol,bk); d[k]=d.get(k,0.0)+v; n[k]=n.get(k,0)+1
+ out={}
+ for pol in policies:
+  out[pol]={}
+  for bk in bounds:
+   k=(pol,bk)
+   out[pol][bk]=(d[k]/n[k]) if k in n and n[k]>0 else float("nan")
+ return out
+a=mean_p95("out/csv/results_swinf.csv")
+b=mean_p95("out/csv/results_swinf_seed2.csv")
+print("[seed1] mean p95_latency_step, fault=NONE")
+for pol in policies:
+ print(pol, " ".join(f"{a[pol][bk]:.2f}" if a[pol][bk]==a[pol][bk] else "nan" for bk in bounds))
+print("[seed2] mean p95_latency_step, fault=NONE")
+for pol in policies:
+ print(pol, " ".join(f"{b[pol][bk]:.2f}" if b[pol][bk]==b[pol][bk] else "nan" for bk in bounds))'
+
+### 5) Save the compare output to a file (for paper notes)
+mkdir -p out/tab; python3 -c 'import csv; bounds=["0","1","2","3","5","10","inf"]; policies=["FIFO","RANDOM","BATCHED","ADVERSARIAL"]; 
+def mean_p95(path):
+ d={}; n={}
+ for r in csv.DictReader(open(path,newline="",encoding="utf-8")):
+  if r.get("fault_mode")!="NONE": 
+   continue
+  pol=r.get("policy"); bk=r.get("bound_k"); x=r.get("p95_latency_step","")
+  if pol is None or bk is None or x=="": 
+   continue
+  try: v=float(x)
+  except: 
+   continue
+  k=(pol,bk); d[k]=d.get(k,0.0)+v; n[k]=n.get(k,0)+1
+ out={}
+ for pol in policies:
+  out[pol]={}
+  for bk in bounds:
+   k=(pol,bk)
+   out[pol][bk]=(d[k]/n[k]) if k in n and n[k]>0 else float("nan")
+ return out
+a=mean_p95("out/csv/results_swinf.csv")
+b=mean_p95("out/csv/results_swinf_seed2.csv")
+lines=[]
+lines.append("[seed1] mean p95_latency_step, fault=NONE")
+for pol in policies:
+ lines.append(pol+" "+" ".join(f"{a[pol][bk]:.2f}" if a[pol][bk]==a[pol][bk] else "nan" for bk in bounds))
+lines.append("[seed2] mean p95_latency_step, fault=NONE")
+for pol in policies:
+ lines.append(pol+" "+" ".join(f"{b[pol][bk]:.2f}" if b[pol][bk]==b[pol][bk] else "nan" for bk in bounds))
+open("out/tab/seed_compare_p95_none.txt","w",encoding="utf-8").write("\\n".join(lines)+"\\n"); print("[ok] wrote out/tab/seed_compare_p95_none.txt")'
+
+

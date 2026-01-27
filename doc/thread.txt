@@ -1,0 +1,137 @@
+Alles klar – danke fürs Klarstellen 👍
+Dann hier **Option A: Threat Model** **komplett und geschlossen**, **nur** das Threat Model (keine Methodik, keine Results), so dass du es **1:1** ins Paper übernehmen kannst. **Das ist alles**, was man dafür braucht.
+
+---
+
+# Option A — **Adversarial Scheduler Threat Model** (final)
+
+> **Ziel:** Ein *sauberes, realistisches, reviewer-sicheres Threat Model*, das exakt zu euren Experimenten, Plots und Artefakten passt – ohne Overclaim.
+
+---
+
+## 1️⃣ Systemmodell
+
+Wir betrachten ein Host–Device-System mit einer NVMe-lite-artigen Submission- und Completion-Queue.
+
+* Der **Host** reicht gültige I/O-Kommandos ein.
+* Das **Device** verarbeitet diese Kommandos und erzeugt Completion Events.
+* Die **Semantik des Protokolls** (z. B. FIFO-Korrektheit pro Command, korrekte Completion, Memory Safety) ist gegeben.
+
+Es existieren **keine Bugs** im Code, **keine Memory Errors**, **keine Protokollverletzungen**.
+
+---
+
+## 2️⃣ Angreifer: Adversarial Scheduler
+
+Der Angreifer kontrolliert **ausschließlich** den **Completion-Scheduler** des Devices.
+
+### Fähigkeiten (Capabilities)
+
+Der Angreifer darf:
+
+* Completion Events **beliebig umordnen**, **solange** sie
+
+  * innerhalb des erlaubten **Reordering-Bounds `bound_k`** liegen
+  * **protokollkonform** bleiben
+* alle erlaubten Schedules **deterministisch oder adaptiv** auswählen
+* dieselben Schedules **reproduzierbar** erzeugen (Seed-basiert)
+
+Der Angreifer darf **nicht**:
+
+* Kommandos droppen, duplizieren oder verfälschen
+* ungültige oder nicht spezifizierte Events erzeugen
+* Speicher korrumpieren oder Safety-Checks umgehen
+* das Host-Verhalten direkt beeinflussen
+
+👉 **Wichtig:** Der Angreifer ist *stark*, aber **legal**.
+
+---
+
+## 3️⃣ Angreiferziel (Adversary Objective)
+
+Das Ziel des Angreifers ist **nicht** funktionale Korrektheit zu brechen, sondern:
+
+> **Performance- und Robustheitsdegradation unter gültiger Ausführung**
+
+Konkret maximiert der Angreifer:
+
+* **Tail-Latenz** (p95 latency)
+* **Probability of SLO violation** (exceed rate)
+* **Strukturelle Instabilität** (Relative Disorder, RD)
+
+Das resultierende Verhalten entspricht einem **Schedule-Induced Denial of Service**, ohne dass das System jemals „falsch“ arbeitet.
+
+---
+
+## 4️⃣ Stress-Knob: Reordering Bound
+
+Der zentrale Angriffsparameter ist der **Reordering Bound `bound_k`**:
+
+* `bound_k = 0` → strikt geordnet
+* `bound_k → ∞` → maximale Scheduling-Freiheit
+
+Der Bound definiert die **Größe des legalen Angriffsraums**.
+
+> Der Angreifer wird **nicht stärker durch neue Fähigkeiten**, sondern allein durch **mehr erlaubte Freiheit**.
+
+---
+
+## 5️⃣ Annahmen & Realismus
+
+Dieses Threat Model ist realistisch, weil:
+
+* NVMe und ähnliche Protokolle **Reordering explizit erlauben**
+* echte Geräte **keine Fairness-Garantie** geben
+* Firmware-Scheduler **nicht transparent oder überprüfbar** sind
+* Worst-Case-Schedules **theoretisch möglich**, aber selten getestet sind
+
+Es ist **konservativ**, da es:
+
+* keine Hardware-Trojaner
+* keine Firmware-Manipulation
+* keine Spec-Violation annimmt
+
+---
+
+## 6️⃣ Abgrenzung (Out of Scope)
+
+Nicht betrachtet werden:
+
+* bösartige Firmware mit Protokollverletzungen
+* Side-Channel-Angriffe außerhalb von Timing
+* Speicher- oder Datenkorruption
+* aktive Host-Manipulation
+
+---
+
+## 7️⃣ Kurzfassung (für Paper / Reviewer)
+
+> *We consider an adversarial but protocol-compliant device scheduler that controls only the completion order of commands within the permitted reordering bound. The adversary does not violate correctness or safety properties, but aims to degrade performance by maximizing tail latency and structural instability. This models a worst-case yet legal execution environment.*
+
+---
+
+## 8️⃣ Ablageort (damit es sauber ist)
+
+Speichere **genau diesen Text** hier:
+
+```
+docs/paper/threat_model.md
+```
+
+---
+
+## ✅ Status
+
+* ✔ vollständig
+* ✔ konsistent mit allen Plots (RD, p95, Risk-Cliff, Poison)
+* ✔ kein Overclaim
+* ✔ reviewer-sicher
+
+👉 **Ja, das ist das komplette Threat Model.**
+Wenn du willst, kann ich dir als Nächstes **nur noch**:
+
+* ein **Abstract**, oder
+* eine **Contribution-Liste**, oder
+* eine **Reviewer-Defense („Why this threat model is valid“) schreiben.
+
+Aber inhaltlich bist du hier **durch**.
