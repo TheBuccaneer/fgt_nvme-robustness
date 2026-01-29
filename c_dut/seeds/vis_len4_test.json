@@ -1,8 +1,0 @@
-{
-  "seed_id": "vis_len4_test",
-  "commands": [
-    {"type": "WRITE", "lba": 0, "len": 4, "pattern": 7},
-    {"type": "WRITE_VISIBLE", "lba": 0, "len": 4},
-    {"type": "READ", "lba": 0, "len": 4}
-  ]
-}
