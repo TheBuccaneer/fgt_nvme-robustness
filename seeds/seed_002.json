@@ -1,0 +1,13 @@
+{
+  "seed_id": "seed_002",
+  "commands": [
+    {"type": "WRITE", "lba": 0, "len": 1, "pattern": 1},
+    {"type": "WRITE", "lba": 1, "len": 1, "pattern": 2},
+    {"type": "WRITE", "lba": 2, "len": 1, "pattern": 3},
+    {"type": "WRITE", "lba": 3, "len": 1, "pattern": 4},
+    {"type": "FENCE"},
+    {"type": "READ", "lba": 0, "len": 4},
+    {"type": "WRITE", "lba": 100, "len": 10, "pattern": 99},
+    {"type": "READ", "lba": 100, "len": 10}
+  ]
+}

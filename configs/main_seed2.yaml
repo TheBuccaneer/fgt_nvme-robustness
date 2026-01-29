@@ -1,0 +1,22 @@
+seeds:
+- seeds/seed_002.json
+policies:
+- FIFO
+- RANDOM
+- ADVERSARIAL
+- BATCHED
+bounds:
+- '0'
+- '1'
+- '2'
+- '3'
+- '5'
+- '10'
+- inf
+faults:
+- NONE
+- TIMEOUT
+- RESET
+schedule_seeds: 0-99
+scheduler_version: v1.0
+git_commit: auto
