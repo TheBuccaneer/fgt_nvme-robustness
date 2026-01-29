@@ -1,0 +1,10 @@
+seed_id=seed_001_long32
+policy=ADVERSARIAL
+bound_k=inf
+fault_mode=NONE
+submit_window=inf
+
+validated_schedule_seeds:
+- 10
+- 18
+- 53

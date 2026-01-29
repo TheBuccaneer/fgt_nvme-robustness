@@ -1,0 +1,31 @@
+# NVMe-lite Oracle Experiment Configuration
+# 
+# This config defines the experiment matrix for schedule-aware differential fuzzing.
+
+seeds:
+
+  - "seeds/seed_001_long32.json"
+policies:
+  - FIFO
+  - RANDOM
+  - ADVERSARIAL
+  - BATCHED
+
+bounds:
+  - "0"
+  - "1"
+  - "2"
+  - "3"
+  - "5"
+  - "10"
+  - "inf"
+
+faults:
+  - NONE
+  - TIMEOUT
+  - RESET
+
+schedule_seeds: "73-73"
+
+scheduler_version: "v1.0"
+git_commit: "auto"

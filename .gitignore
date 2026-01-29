@@ -21,8 +21,7 @@ __pycache__/
 *.pyc
 
 # --- Outputs / artifacts (project-specific) ---
-/out/
-/out_*/
+
 /c_dut/out/
 /c_dut/out_*/
 /artifacts/*.tgz
